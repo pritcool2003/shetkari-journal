@@ -98,96 +98,103 @@ def get_skip_keyboard():
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
-    
-    chat_id = query.message.chat_id
-    data = query.data
-    bot = context.bot
-
-    if not _is_authorized(chat_id):
-        return
-
-    # Check for cancel
-    if data == "interactive:cancel":
-        _interactive_entry.pop(chat_id, None)
-        await query.edit_message_text("❌ नोंद रद्द करण्यात आली.")
-        return
-
-    # Initialize if missing
-    if chat_id not in _interactive_entry:
-        _interactive_entry[chat_id] = {"step": "CROP"}
-
-    state = _interactive_entry[chat_id]
-
-    if data.startswith("crop:"):
-        crop = data.split(":", 1)[1]
-        state["crop"] = crop
-        state["step"] = "CATEGORY"
+    try:
+        await query.answer()
         
-        crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(crop, crop)
-        await query.edit_message_text(
-            f"🌾 नवीन नोंद - २/५\n\n📌 पीक: *{crop_emoji}*\n\n👉 वर्ग निवडा (Select Category):",
-            parse_mode="Markdown",
-            reply_markup=get_category_keyboard()
-        )
+        chat_id = query.message.chat_id
+        data = query.data
+        bot = context.bot
 
-    elif data.startswith("cat:"):
-        cat = data.split(":", 1)[1]
-        state["category"] = cat
-        state["step"] = "TYPE"
-        
-        crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
-        cat_emoji = sm.CATEGORY_EMOJI.get(cat, ("📦", cat))
-        cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
-        
-        await query.edit_message_text(
-            f"🌾 नवीन नोंद - ३/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n\n👉 प्रकार निवडा (Select Type):",
-            parse_mode="Markdown",
-            reply_markup=get_type_keyboard()
-        )
+        if not _is_authorized(chat_id):
+            return
 
-    elif data.startswith("type:"):
-        t = data.split(":", 1)[1]
-        state["type"] = t
-        state["step"] = "AMOUNT"
-        
-        crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
-        cat_emoji = sm.CATEGORY_EMOJI.get(state.get("category"), ("📦", state.get("category")))
-        cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
-        type_display = "खर्च 💸 (Expense)" if t == "expense" else "उत्पन्न 💰 (Income)"
-        
-        await query.edit_message_text(
-            f"🌾 नवीन नोंद - ४/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n📌 प्रकार: *{type_display}*\n\n💬 *कृपया रक्कम (Amount) टाईप करा (उदा. 1500):*",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]])
-        )
+        # Check for cancel
+        if data == "interactive:cancel":
+            _interactive_entry.pop(chat_id, None)
+            await query.edit_message_text("❌ नोंद रद्द करण्यात आली.")
+            return
 
-    elif data.startswith("back:"):
-        prev = data.split(":", 1)[1]
-        state["step"] = prev
-        if prev == "CROP":
-            await query.edit_message_text(
-                "🌾 नवीन नोंद - १/५\n\n👉 पीक निवडा (Select Crop):",
-                reply_markup=get_crop_keyboard()
-            )
-        elif prev == "CATEGORY":
-            crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+        # Initialize if missing
+        if chat_id not in _interactive_entry:
+            _interactive_entry[chat_id] = {"step": "CROP"}
+
+        state = _interactive_entry[chat_id]
+
+        if data.startswith("crop:"):
+            crop = data.split(":", 1)[1]
+            state["crop"] = crop
+            state["step"] = "CATEGORY"
+            
+            crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(crop, crop)
             await query.edit_message_text(
                 f"🌾 नवीन नोंद - २/५\n\n📌 पीक: *{crop_emoji}*\n\n👉 वर्ग निवडा (Select Category):",
                 parse_mode="Markdown",
                 reply_markup=get_category_keyboard()
             )
 
-    elif data == "desc:skip":
-        if state.get("step") == "DESC":
-            state["description"] = state.get("category", "Other")
-            state["season"] = get_current_season()
-            state["date"] = date.today().strftime("%d-%m-%Y")
+        elif data.startswith("cat:"):
+            cat = data.split(":", 1)[1]
+            state["category"] = cat
+            state["step"] = "TYPE"
             
-            _interactive_entry.pop(chat_id, None)
+            crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+            cat_emoji = sm.CATEGORY_EMOJI.get(cat, ("📦", cat))
+            cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
             
-            await query.edit_message_text("📝 डेटा सेव्ह होत आहे...")
-            await _log_and_reply(bot, chat_id, state)
+            await query.edit_message_text(
+                f"🌾 नवीन नोंद - ३/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n\n👉 प्रकार निवडा (Select Type):",
+                parse_mode="Markdown",
+                reply_markup=get_type_keyboard()
+            )
+
+        elif data.startswith("type:"):
+            t = data.split(":", 1)[1]
+            state["type"] = t
+            state["step"] = "AMOUNT"
+            
+            crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+            cat_emoji = sm.CATEGORY_EMOJI.get(state.get("category"), ("📦", state.get("category")))
+            cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
+            type_display = "खर्च 💸 (Expense)" if t == "expense" else "उत्पन्न 💰 (Income)"
+            
+            await query.edit_message_text(
+                f"🌾 नवीन नोंद - ४/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n📌 प्रकार: *{type_display}*\n\n💬 *कृपया रक्कम (Amount) टाईप करा (उदा. 1500):*",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]])
+            )
+
+        elif data.startswith("back:"):
+            prev = data.split(":", 1)[1]
+            state["step"] = prev
+            if prev == "CROP":
+                await query.edit_message_text(
+                    "🌾 नवीन नोंद - १/५\n\n👉 पीक निवडा (Select Crop):",
+                    reply_markup=get_crop_keyboard()
+                )
+            elif prev == "CATEGORY":
+                crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+                await query.edit_message_text(
+                    f"🌾 नवीन नोंद - २/५\n\n📌 पीक: *{crop_emoji}*\n\n👉 वर्ग निवडा (Select Category):",
+                    parse_mode="Markdown",
+                    reply_markup=get_category_keyboard()
+                )
+
+        elif data == "desc:skip":
+            if state.get("step") == "DESC":
+                state["description"] = state.get("category", "Other")
+                state["season"] = get_current_season()
+                state["date"] = date.today().strftime("%d-%m-%Y")
+                
+                _interactive_entry.pop(chat_id, None)
+                
+                await query.edit_message_text("📝 डेटा सेव्ह होत आहे...")
+                await _log_and_reply(bot, chat_id, state)
+    except Exception as e:
+        logger.error(f"Error in handle_callback_query: {e}", exc_info=True)
+        try:
+            await query.edit_message_text("⚠️ प्रक्रिया करताना एरर आली. कृपया नंतर प्रयत्न करा.")
+        except Exception:
+            pass
 
 
 def _is_authorized(chat_id: int) -> bool:
