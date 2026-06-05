@@ -22,6 +22,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler("app.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -117,6 +121,18 @@ async def status():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/debug-logs")
+async def debug_logs():
+    import os
+    if os.path.exists("app.log"):
+        with open("app.log", "r", encoding="utf-8") as f:
+            content = f.read()
+            if len(content) > 8000:
+                content = "...\n[TRUNCATED]\n" + content[-8000:]
+            return Response(content=content, media_type="text/plain")
+    return Response(content="No logs found.", media_type="text/plain")
 
 
 # ── Entry point (local dev) ───────────────────────────────────────────────────
