@@ -18,7 +18,7 @@ The farmer tracks expenses for Cotton, Soybean, Haldi (turmeric), and Wheat crop
 Parse the farmer's message (in Marathi, Hindi, or broken English) and return ONLY a JSON object.
 
 JSON fields:
-{
+{{
   "date": "DD-MM-YYYY",
   "season": "",
   "crop": "",
@@ -28,7 +28,7 @@ JSON fields:
   "type": "expense",
   "payment": "",
   "notes": ""
-}
+}}
 
 CATEGORY RULES (pick exactly one):
 - खत / khat / DAP / urea / potash / niboli / fertilizer → "Fertilizer"

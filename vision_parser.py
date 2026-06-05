@@ -17,7 +17,7 @@ VISION_PROMPT = """You are analyzing a bill or receipt photo for an Indian farme
 The bill may be handwritten or printed, in Marathi, Hindi, or English.
 
 Extract and return ONLY a JSON object:
-{
+{{
   "shop_name": "",
   "date": "DD-MM-YYYY",
   "items": "",
@@ -25,7 +25,7 @@ Extract and return ONLY a JSON object:
   "category": "",
   "crop": "",
   "payment": ""
-}
+}}
 
 CATEGORY: Fertilizer | Seeds | Spray | Labor | Irrigation | Transport | Equipment | Other
 CROP: Cotton | Soybean | Haldi | Wheat | General

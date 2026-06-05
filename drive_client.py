@@ -76,11 +76,14 @@ def upload_image(image_bytes: bytes, season: str, original_filename: str = "") -
 
         file_id = uploaded.get("id")
 
-        # Make it readable by anyone with the link
-        service.permissions().create(
-            fileId=file_id,
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
+        # Make it readable by anyone with the link (optional, if policies allow)
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"},
+            ).execute()
+        except Exception as perm_err:
+            logger.warning(f"Failed to set public sharing permission (continuing anyway): {perm_err}")
 
         link = uploaded.get("webViewLink", "")
         logger.info(f"Uploaded bill to Drive: {link}")
