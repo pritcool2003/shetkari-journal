@@ -203,8 +203,9 @@ async def test_connections():
         creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
         client = gspread.authorize(creds)
         
-        sheet_id = os.getenv("GOOGLE_SHEET_ID")
-        output.append(f"   Opening sheet ID: {sheet_id}...")
+        from config import GOOGLE_SHEET_ID as config_sheet_id
+        sheet_id = config_sheet_id
+        output.append(f"   Opening sheet ID (cleaned): {sheet_id}...")
         spreadsheet = client.open_by_key(sheet_id)
         output.append(f"[OK] Google Sheets: Successfully connected to sheet '{spreadsheet.title}'!")
         
@@ -224,9 +225,9 @@ async def test_connections():
         try:
             from googleapiclient.discovery import build
             drive_service = build("drive", "v3", credentials=creds)
-            drive_id = os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID")
-            
-            output.append(f"   Fetching metadata for root folder ID: {drive_id}...")
+            from config import GOOGLE_DRIVE_ROOT_FOLDER_ID as config_drive_id
+            drive_id = config_drive_id
+            output.append(f"   Fetching metadata for root folder ID (cleaned): {drive_id}...")
             folder_metadata = drive_service.files().get(fileId=drive_id, fields="id, name, mimeType").execute()
             output.append(f"[OK] Google Drive: Successfully connected to folder '{folder_metadata.get('name')}'!")
         except Exception as e:

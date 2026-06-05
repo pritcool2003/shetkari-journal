@@ -9,8 +9,27 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID")  # Optional, single user security
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
-GOOGLE_DRIVE_ROOT_FOLDER_ID = os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID")
+def _clean_google_id(val: str) -> str:
+    if not val:
+        return ""
+    val = val.strip()
+    if "/" in val:
+        if "/d/" in val:
+            parts = val.split("/d/")
+            if len(parts) > 1:
+                return parts[1].split("/")[0].split("?")[0].split("#")[0]
+        if "/folders/" in val:
+            parts = val.split("/folders/")
+            if len(parts) > 1:
+                return parts[1].split("/")[0].split("?")[0].split("#")[0]
+        segments = [s.split("?")[0].split("#")[0] for s in val.split("/") if s.strip()]
+        for seg in segments:
+            if len(seg) >= 25:
+                return seg
+    return val.split("?")[0].split("#")[0]
+
+GOOGLE_SHEET_ID = _clean_google_id(os.getenv("GOOGLE_SHEET_ID", ""))
+GOOGLE_DRIVE_ROOT_FOLDER_ID = _clean_google_id(os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID", ""))
 
 # Service account JSON can be stored as env var string or file path
 _sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
