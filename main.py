@@ -231,10 +231,29 @@ async def test_connections():
             output.append(f"   Fetching metadata for root folder ID (cleaned): {drive_id}...")
             folder_metadata = drive_service.files().get(fileId=drive_id, fields="id, name, mimeType").execute()
             output.append(f"[OK] Google Drive: Successfully connected to folder '{folder_metadata.get('name')}'!")
+            
+            # Test write permissions by creating and deleting a temp file
+            output.append("   Verifying folder WRITE permissions...")
+            from googleapiclient.http import MediaIoBaseUpload
+            import io
+            test_metadata = {
+                "name": "write_test_temp.txt",
+                "parents": [drive_id]
+            }
+            media = MediaIoBaseUpload(io.BytesIO(b"write check"), mimetype="text/plain")
+            uploaded_test = drive_service.files().create(
+                body=test_metadata, media_body=media, fields="id"
+            ).execute()
+            test_id = uploaded_test.get("id")
+            output.append(f"[OK] Google Drive: Successfully verified write permissions (temp file ID: {test_id})")
+            
+            # Clean up the temp file
+            drive_service.files().delete(fileId=test_id).execute()
+            output.append("   Google Drive: Cleaned up write test file.")
         except Exception as e:
             output.append(f"[ERROR] Google Drive Connection: Failed! Error: {e}")
             output.append(traceback.format_exc())
-            output.append("   Tip: Make sure the service account email is shared as an Editor on the Google Drive folder.")
+            output.append("   Tip: Make sure the service account email is shared as an Editor on the Google Drive folder (not just Viewer).")
 
     output.append("\n=== Diagnostics Completed ===")
     return Response(content="\n".join(output), media_type="text/plain")
