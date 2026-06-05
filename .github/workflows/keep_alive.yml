@@ -1,0 +1,17 @@
+name: Render Keep Alive
+
+on:
+  schedule:
+    # Run every 14 minutes (Render free instances sleep after 15 minutes of inactivity)
+    - cron: '*/14 * * * *'
+  # Allow manual trigger from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render App
+        run: |
+          curl -I -s -o /dev/null https://shetkari-journal.onrender.com/
+          echo "Pinged successfully at $(date)"
