@@ -135,6 +135,109 @@ async def debug_logs():
     return Response(content="No logs found.", media_type="text/plain")
 
 
+@app.get("/test-connections")
+async def test_connections():
+    import os
+    import json
+    import traceback
+    from datetime import date
+    output = []
+    output.append("=== Shetkari Journal Bot Diagnostic Tool ===")
+
+    # 1. Check Env Variables
+    required_vars = [
+        "TELEGRAM_BOT_TOKEN",
+        "OPENAI_API_KEY",
+        "GOOGLE_SHEET_ID",
+        "GOOGLE_DRIVE_ROOT_FOLDER_ID",
+        "GOOGLE_SERVICE_ACCOUNT_JSON"
+    ]
+
+    all_set = True
+    for var in required_vars:
+        val = os.getenv(var)
+        if val:
+            display_val = val[:10] + "..." if len(val) > 10 else val
+            output.append(f"[OK] {var} is set (starts with: '{display_val}')")
+        else:
+            output.append(f"[MISSING] {var} is MISSING!")
+            all_set = False
+
+    if not all_set:
+        output.append("\n[WARNING] Please configure all missing environment variables in Render Dashboard.")
+        return Response(content="\n".join(output), media_type="text/plain")
+
+    # 2. Test OpenAI connection
+    output.append("\n--- Testing OpenAI API ---")
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=5
+        )
+        output.append("[OK] OpenAI API: Connection successful!")
+        output.append(f"   Response: {response.choices[0].message.content.strip()}")
+    except Exception as e:
+        output.append(f"[ERROR] OpenAI API: Failed! Error: {e}")
+
+    # 3. Test Google Credentials & Sheets Connection
+    output.append("\n--- Testing Google Sheets API ---")
+    creds = None
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        
+        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        if sa_json.startswith("{"):
+            sa_info = json.loads(sa_json)
+        else:
+            with open(sa_json) as f:
+                sa_info = json.load(f)
+                
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        sheet_id = os.getenv("GOOGLE_SHEET_ID")
+        output.append(f"   Opening sheet ID: {sheet_id}...")
+        spreadsheet = client.open_by_key(sheet_id)
+        output.append(f"[OK] Google Sheets: Successfully connected to sheet '{spreadsheet.title}'!")
+        
+        try:
+            sheet = spreadsheet.worksheet("Expenses")
+            output.append("[OK] Google Sheets: 'Expenses' worksheet exists.")
+        except gspread.WorksheetNotFound:
+            output.append("[INFO] 'Expenses' worksheet not found (will be created on first append).")
+    except Exception as e:
+        output.append(f"[ERROR] Google Sheets Connection: Failed! Error: {e}")
+        output.append(traceback.format_exc())
+        output.append("   Tip: Make sure the service account email is shared as an Editor on the Google Sheet.")
+
+    # 4. Test Google Drive Connection
+    output.append("\n--- Testing Google Drive API ---")
+    if creds:
+        try:
+            from googleapiclient.discovery import build
+            drive_service = build("drive", "v3", credentials=creds)
+            drive_id = os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID")
+            
+            output.append(f"   Fetching metadata for root folder ID: {drive_id}...")
+            folder_metadata = drive_service.files().get(fileId=drive_id, fields="id, name, mimeType").execute()
+            output.append(f"[OK] Google Drive: Successfully connected to folder '{folder_metadata.get('name')}'!")
+        except Exception as e:
+            output.append(f"[ERROR] Google Drive Connection: Failed! Error: {e}")
+            output.append(traceback.format_exc())
+            output.append("   Tip: Make sure the service account email is shared as an Editor on the Google Drive folder.")
+
+    output.append("\n=== Diagnostics Completed ===")
+    return Response(content="\n".join(output), media_type="text/plain")
+
+
 # ── Entry point (local dev) ───────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
