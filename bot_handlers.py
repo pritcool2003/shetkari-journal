@@ -7,7 +7,7 @@ import logging
 import httpx
 from datetime import date
 
-from telegram import Update, Bot
+from telegram import Update, Bot, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_ID, get_current_season
@@ -42,6 +42,152 @@ HELP_TEXT = """🌾 *शेतकरी जर्नल बॉट*
 • एकूण किती
 
 *पीके:* कापूस 🌿 | सोयाबीन 🫘 | हळद 🟡 | गहू 🌾"""
+
+
+MAIN_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("📊 आजचा हिशोब"), KeyboardButton("📅 महिन्याचा हिशोब")],
+        [KeyboardButton("🌾 सीझन summary"), KeyboardButton("➕ नवीन नोंद")],
+        [KeyboardButton("❓ मदत")]
+    ],
+    resize_keyboard=True
+)
+
+# State tracking for button-guided logging
+_interactive_entry: dict = {}
+
+def get_crop_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("कापूस 🌿", callback_data="crop:Cotton"),
+         InlineKeyboardButton("सोयाबीन 🫘", callback_data="crop:Soybean")],
+        [InlineKeyboardButton("हळद 🟡", callback_data="crop:Haldi"),
+         InlineKeyboardButton("गहू 🌾", callback_data="crop:Wheat")],
+        [InlineKeyboardButton("General 🚜", callback_data="crop:General")],
+        [InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]
+    ])
+
+def get_category_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛠️ मशागत (Tillage)", callback_data="cat:Tillage"),
+         InlineKeyboardButton("🌱 पेरणी/लागवड (Sowing)", callback_data="cat:Sowing")],
+        [InlineKeyboardButton("🌿 खत (Fertilizer)", callback_data="cat:Fertilizer"),
+         InlineKeyboardButton("🌾 बियाणे (Seeds)", callback_data="cat:Seeds")],
+        [InlineKeyboardButton("💊 फवारणी (Spray)", callback_data="cat:Spray"),
+         InlineKeyboardButton("👷 मजुरी (Labor)", callback_data="cat:Labor")],
+        [InlineKeyboardButton("💧 सिंचन (Irrigation)", callback_data="cat:Irrigation"),
+         InlineKeyboardButton("🚜 वाहतूक (Transport)", callback_data="cat:Transport")],
+        [InlineKeyboardButton("📦 इतर (Other)", callback_data="cat:Other")],
+        [InlineKeyboardButton("⬅️ मागे (Back)", callback_data="back:CROP"),
+         InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]
+    ])
+
+def get_type_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("खर्च 💸 (Expense)", callback_data="type:expense"),
+         InlineKeyboardButton("उत्पन्न 💰 (Income)", callback_data="type:income")],
+        [InlineKeyboardButton("⬅️ मागे (Back)", callback_data="back:CATEGORY"),
+         InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]
+    ])
+
+def get_skip_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Skip ⏩ (वगळा)", callback_data="desc:skip")],
+        [InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]
+    ])
+
+
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    
+    chat_id = query.message.chat_id
+    data = query.data
+    bot = context.bot
+
+    if not _is_authorized(chat_id):
+        return
+
+    # Check for cancel
+    if data == "interactive:cancel":
+        _interactive_entry.pop(chat_id, None)
+        await query.edit_message_text("❌ नोंद रद्द करण्यात आली.")
+        return
+
+    # Initialize if missing
+    if chat_id not in _interactive_entry:
+        _interactive_entry[chat_id] = {"step": "CROP"}
+
+    state = _interactive_entry[chat_id]
+
+    if data.startswith("crop:"):
+        crop = data.split(":", 1)[1]
+        state["crop"] = crop
+        state["step"] = "CATEGORY"
+        
+        crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(crop, crop)
+        await query.edit_message_text(
+            f"🌾 नवीन नोंद - २/५\n\n📌 पीक: *{crop_emoji}*\n\n👉 वर्ग निवडा (Select Category):",
+            parse_mode="Markdown",
+            reply_markup=get_category_keyboard()
+        )
+
+    elif data.startswith("cat:"):
+        cat = data.split(":", 1)[1]
+        state["category"] = cat
+        state["step"] = "TYPE"
+        
+        crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+        cat_emoji = sm.CATEGORY_EMOJI.get(cat, ("📦", cat))
+        cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
+        
+        await query.edit_message_text(
+            f"🌾 नवीन नोंद - ३/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n\n👉 प्रकार निवडा (Select Type):",
+            parse_mode="Markdown",
+            reply_markup=get_type_keyboard()
+        )
+
+    elif data.startswith("type:"):
+        t = data.split(":", 1)[1]
+        state["type"] = t
+        state["step"] = "AMOUNT"
+        
+        crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+        cat_emoji = sm.CATEGORY_EMOJI.get(state.get("category"), ("📦", state.get("category")))
+        cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
+        type_display = "खर्च 💸 (Expense)" if t == "expense" else "उत्पन्न 💰 (Income)"
+        
+        await query.edit_message_text(
+            f"🌾 नवीन नोंद - ४/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n📌 प्रकार: *{type_display}*\n\n💬 *कृपया रक्कम (Amount) टाईप करा (उदा. 1500):*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]])
+        )
+
+    elif data.startswith("back:"):
+        prev = data.split(":", 1)[1]
+        state["step"] = prev
+        if prev == "CROP":
+            await query.edit_message_text(
+                "🌾 नवीन नोंद - १/५\n\n👉 पीक निवडा (Select Crop):",
+                reply_markup=get_crop_keyboard()
+            )
+        elif prev == "CATEGORY":
+            crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+            await query.edit_message_text(
+                f"🌾 नवीन नोंद - २/५\n\n📌 पीक: *{crop_emoji}*\n\n👉 वर्ग निवडा (Select Category):",
+                parse_mode="Markdown",
+                reply_markup=get_category_keyboard()
+            )
+
+    elif data == "desc:skip":
+        if state.get("step") == "DESC":
+            state["description"] = state.get("category", "Other")
+            state["season"] = get_current_season()
+            state["date"] = date.today().strftime("%d-%m-%Y")
+            
+            _interactive_entry.pop(chat_id, None)
+            
+            await query.edit_message_text("📝 डेटा सेव्ह होत आहे...")
+            await _log_and_reply(bot, chat_id, state)
 
 
 def _is_authorized(chat_id: int) -> bool:
@@ -105,7 +251,7 @@ async def _log_and_reply(bot: Bot, chat_id: int, row: dict, extra_msg: str = "")
         logger.error(f"Error in _log_and_reply: {e}", exc_info=True)
         msg = "⚠️ नोंद करताना एरर आली, पण डेटा सेव्ह होऊ शकला नाही."
 
-    await bot.send_message(chat_id=chat_id, text=msg)
+    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=MAIN_MENU_KEYBOARD)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -117,10 +263,68 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not _is_authorized(chat_id):
             return
 
-        # Help command
-        if text.strip().lower() in ["/start", "/help", "help", "मदत"]:
-            await bot.send_message(chat_id=chat_id, text=HELP_TEXT, parse_mode="Markdown")
+        # Help command / Main Menu Help
+        if text.strip().lower() in ["/start", "/help", "help", "मदत", "❓ मदत"]:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=HELP_TEXT,
+                parse_mode="Markdown",
+                reply_markup=MAIN_MENU_KEYBOARD
+            )
             return
+
+        # Start interactive button-guided logging
+        if text.strip() == "➕ नवीन नोंद" or text.strip().lower() in ["/new", "new", "नोंद"]:
+            _interactive_entry[chat_id] = {"step": "CROP"}
+            await bot.send_message(
+                chat_id=chat_id,
+                text="🌾 नवीन नोंद - १/५\n\n👉 पीक निवडा (Select Crop):",
+                reply_markup=get_crop_keyboard()
+            )
+            return
+
+        # Check if user is currently in interactive entry flow
+        if chat_id in _interactive_entry:
+            state = _interactive_entry[chat_id]
+            step = state.get("step")
+
+            if step == "AMOUNT":
+                try:
+                    # Clean and parse amount
+                    amt_clean = text.replace("₹", "").replace(",", "").strip()
+                    amount = float(amt_clean)
+                    state["amount"] = amount
+                    state["step"] = "DESC"
+
+                    crop_emoji = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(state.get("crop"), "")
+                    cat_emoji = sm.CATEGORY_EMOJI.get(state.get("category"), ("📦", state.get("category")))
+                    cat_display = f"{cat_emoji[0]} {cat_emoji[1]}"
+                    type_display = "खर्च 💸 (Expense)" if state.get("type") == "expense" else "उत्पन्न 💰 (Income)"
+
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"🌾 नवीन नोंद - ५/५\n\n📌 पीक: *{crop_emoji}*\n📌 वर्ग: *{cat_display}*\n📌 प्रकार: *{type_display}*\n📌 रक्कम: *₹{amount:,.0f}*\n\n💬 *काही वर्णन / टीप (Description)?*\nटाईप करा किंवा खालील Skip बटन दाबा:",
+                        parse_mode="Markdown",
+                        reply_markup=get_skip_keyboard()
+                    )
+                except ValueError:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="❌ फक्त संख्या (नंबर) टाईप करा (उदा: 1500):",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ रद्द (Cancel)", callback_data="interactive:cancel")]])
+                    )
+                return
+
+            elif step == "DESC":
+                state["description"] = text
+                state["season"] = get_current_season()
+                state["date"] = date.today().strftime("%d-%m-%Y")
+
+                _interactive_entry.pop(chat_id, None)
+
+                await bot.send_message(chat_id=chat_id, text="📝 डेटा सेव्ह होत आहे...")
+                await _log_and_reply(bot, chat_id, state)
+                return
 
         # Check if user is responding with amount for a pending photo
         if chat_id in _pending_photo:
@@ -145,7 +349,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 msg = sm.season_summary()
             else:
                 msg = sm.running_total()
-            await bot.send_message(chat_id=chat_id, text=msg)
+            await bot.send_message(chat_id=chat_id, text=msg, reply_markup=MAIN_MENU_KEYBOARD)
             return
 
         # Parse as expense
@@ -155,7 +359,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not parsed or not parsed.get("amount"):
             await bot.send_message(
                 chat_id=chat_id,
-                text="समजले नाही 🙏\nउदाहरण: 'आज DAP 2 बॅग घेतल्या ₹1200'\nकिंवा /help टाइप करा"
+                text="समजले नाही 🙏\nउदाहरण: 'आज DAP 2 बॅग घेतल्या ₹1200'\nकिंवा /help टाइप करा",
+                reply_markup=MAIN_MENU_KEYBOARD
             )
             return
 
@@ -167,7 +372,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         try:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="⚠️ संदेश प्रक्रिया करताना एरर आली. कृपया नंतर प्रयत्न करा."
+                text="⚠️ संदेश प्रक्रिया करताना एरर आली. कृपया नंतर प्रयत्न करा.",
+                reply_markup=MAIN_MENU_KEYBOARD
             )
         except Exception:
             pass

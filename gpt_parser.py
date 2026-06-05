@@ -31,12 +31,14 @@ JSON fields:
 }}
 
 CATEGORY RULES (pick exactly one):
+- मशागत / tillage / ploughing / नांगरणी / नांगरट / रोटव्हेटर / rotavator / harrowing / Cultivator / rotor / रोटर / पाळी / फटी / मशागत (tractor work for land prep) → "Tillage"
+- पेरणी / sowing / seed drill / planting / लागवड / टोकण / हळद लागवड / पेरणी (tractor work for sowing/planting) → "Sowing"
 - खत / khat / DAP / urea / potash / niboli / fertilizer → "Fertilizer"
 - बियाणे / biyane / seeds / soybean seeds / cotton seeds → "Seeds"
 - फवारणी / fawrani / spray / sanjivani / driching / BioR / pesticide / roundup / insecticide → "Spray"
 - मजुरी / majuri / labour / labor / nigan / chinai / nidhan / workers / माणसं → "Labor"
 - ड्रिप / drip / pump / पंप / MSEB / electricity / पाणी / pipe → "Irrigation"
-- ट्रॅक्टर / tractor / vahatuk / transport / truck / वाहतूक → "Transport"
+- वाहतूक / vahatuk / transport / truck / tractor / vahatuk / transport (general hauling/carting) → "Transport"
 - विकला / sold / mandi / उत्पन्न / miyus / kevani / cotton sale / soy sale → "Sale"
 - haldi machine / हळद / turmeric harvest → "Harvesting"
 - vet / veterinary / पशु → "Veterinary"

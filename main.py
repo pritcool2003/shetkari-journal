@@ -12,10 +12,10 @@ from datetime import datetime
 import httpx
 from fastapi import FastAPI, Request, Response
 from telegram import Update, Bot
-from telegram.ext import Application, MessageHandler, filters
+from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters
 
 from config import TELEGRAM_BOT_TOKEN, WEBHOOK_URL, PORT
-from bot_handlers import handle_text, handle_photo, handle_voice
+from bot_handlers import handle_text, handle_photo, handle_voice, handle_callback_query
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -38,6 +38,7 @@ application = (
 )
 
 # Register handlers
+application.add_handler(CallbackQueryHandler(handle_callback_query))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 application.add_handler(MessageHandler(filters.COMMAND, handle_text))        # /start /help
 application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
