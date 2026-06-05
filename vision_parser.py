@@ -27,13 +27,17 @@ Extract and return ONLY a JSON object:
   "payment": ""
 }}
 
-CATEGORY: Fertilizer | Seeds | Spray | Labor | Irrigation | Transport | Equipment | Other
-CROP: Cotton | Soybean | Haldi | Wheat | General
+GUIDELINES FOR ACCURATE EXTRACTION:
+1. READ HANDWRITING CAREFULLY: Look closely at handwritten numbers and item descriptions.
+2. TRANSLATE DEVANAGARI NUMERALS: Marathi bills often use Devanagari digits (१, २, ३, ४, ५, ६, ७, ८, ९, ०). You MUST translate them to standard numbers (1, 2, 3, 4, 5, 6, 7, 8, 9, 0). E.g., if you see "₹१५००", output 1500.
+3. DOUBLE CHECK TOTAL AMOUNT: Locate the final total ("Total", "Grand Total", "एकूण", or circled/boxed numbers). Do not get confused by individual item rates. Ensure "amount" is a clean integer or float.
+4. ITEM DETAILS: Extract names of items (like "DAP", "10:26:26", "बियाणे", "राउंडअप") and shop name.
+5. CATEGORIES: Select exactly one of: Fertilizer, Seeds, Spray, Labor, Irrigation, Transport, Equipment, Other.
+6. CROPS: Select one of: Cotton, Soybean, Haldi, Wheat, General.
 
 - Use today's date if bill date is not visible: {today}
-- amount = total amount on the bill (look for "Total", "एकूण", circled/boxed numbers)
 - If the image is NOT a bill/receipt at all, return: {{"error": "not_a_bill"}}
-- Return ONLY JSON. No explanation."""
+- Return ONLY JSON. No explanation, no markdown backticks."""
 
 
 def parse_bill_image(image_bytes: bytes) -> dict | None:
