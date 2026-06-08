@@ -149,9 +149,8 @@ async def test_connections():
     required_vars = [
         "TELEGRAM_BOT_TOKEN",
         "OPENAI_API_KEY",
-        "GOOGLE_SHEET_ID",
-        "GOOGLE_DRIVE_ROOT_FOLDER_ID",
-        "GOOGLE_SERVICE_ACCOUNT_JSON"
+        "SUPABASE_URL",
+        "SUPABASE_KEY"
     ]
 
     all_set = True
@@ -183,77 +182,34 @@ async def test_connections():
     except Exception as e:
         output.append(f"[ERROR] OpenAI API: Failed! Error: {e}")
 
-    # 3. Test Google Credentials & Sheets Connection
-    output.append("\n--- Testing Google Sheets API ---")
-    creds = None
+    # 3. Test Supabase Database Connection
+    output.append("\n--- Testing Supabase Connection ---")
     try:
-        import gspread
-        from google.oauth2.service_account import Credentials
+        from supabase_client import _get_client
+        supabase = _get_client()
         
-        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-        if sa_json.startswith("{"):
-            sa_info = json.loads(sa_json)
+        # Test table check
+        output.append("   Fetching expenses table data to verify read permission...")
+        res = supabase.table("expenses").select("id").limit(1).execute()
+        output.append(f"[OK] Supabase DB: Successfully connected! Found records: {len(res.data)}")
+        
+        # Test Storage
+        output.append("   Checking Supabase Storage bucket 'bills' exists...")
+        buckets = supabase.storage.list_buckets()
+        bucket_names = [b.name for b in buckets]
+        if "bills" in bucket_names:
+            output.append("[OK] Supabase Storage: 'bills' bucket exists and is accessible!")
+            
+            # Check public access
+            bill_bucket = next(b for b in buckets if b.name == "bills")
+            is_public = bill_bucket.public
+            output.append(f"   Bucket 'bills' public status: {is_public} (Should be True for public view links)")
         else:
-            with open(sa_json) as f:
-                sa_info = json.load(f)
-                
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
-        client = gspread.authorize(creds)
-        
-        from config import GOOGLE_SHEET_ID as config_sheet_id
-        sheet_id = config_sheet_id
-        output.append(f"   Opening sheet ID (cleaned): {sheet_id}...")
-        spreadsheet = client.open_by_key(sheet_id)
-        output.append(f"[OK] Google Sheets: Successfully connected to sheet '{spreadsheet.title}'!")
-        
-        try:
-            sheet = spreadsheet.worksheet("Expenses")
-            output.append("[OK] Google Sheets: 'Expenses' worksheet exists.")
-        except gspread.WorksheetNotFound:
-            output.append("[INFO] 'Expenses' worksheet not found (will be created on first append).")
+            output.append("[WARNING] Supabase Storage: 'bills' bucket not found! Please create a public bucket named 'bills' in your Supabase console.")
     except Exception as e:
-        output.append(f"[ERROR] Google Sheets Connection: Failed! Error: {e}")
+        output.append(f"[ERROR] Supabase Connection: Failed! Error: {e}")
         output.append(traceback.format_exc())
-        output.append("   Tip: Make sure the service account email is shared as an Editor on the Google Sheet.")
 
-    # 4. Test Google Drive Connection
-    output.append("\n--- Testing Google Drive API ---")
-    if creds:
-        try:
-            from googleapiclient.discovery import build
-            drive_service = build("drive", "v3", credentials=creds)
-            from config import GOOGLE_DRIVE_ROOT_FOLDER_ID as config_drive_id
-            drive_id = config_drive_id
-            output.append(f"   Fetching metadata for root folder ID (cleaned): {drive_id}...")
-            folder_metadata = drive_service.files().get(fileId=drive_id, fields="id, name, mimeType").execute()
-            output.append(f"[OK] Google Drive: Successfully connected to folder '{folder_metadata.get('name')}'!")
-            
-            # Test write permissions by creating and deleting a temp file
-            output.append("   Verifying folder WRITE permissions...")
-            from googleapiclient.http import MediaIoBaseUpload
-            import io
-            test_metadata = {
-                "name": "write_test_temp.txt",
-                "parents": [drive_id]
-            }
-            media = MediaIoBaseUpload(io.BytesIO(b"write check"), mimetype="text/plain")
-            uploaded_test = drive_service.files().create(
-                body=test_metadata, media_body=media, fields="id"
-            ).execute()
-            test_id = uploaded_test.get("id")
-            output.append(f"[OK] Google Drive: Successfully verified write permissions (temp file ID: {test_id})")
-            
-            # Clean up the temp file
-            drive_service.files().delete(fileId=test_id).execute()
-            output.append("   Google Drive: Cleaned up write test file.")
-        except Exception as e:
-            output.append(f"[ERROR] Google Drive Connection: Failed! Error: {e}")
-            output.append(traceback.format_exc())
-            output.append("   Tip: Make sure the service account email is shared as an Editor on the Google Drive folder (not just Viewer).")
 
     output.append("\n=== Diagnostics Completed ===")
     return Response(content="\n".join(output), media_type="text/plain")

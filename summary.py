@@ -4,7 +4,7 @@ Generate Marathi-language expense summary messages for Telegram.
 """
 
 from datetime import date
-from sheets_client import (
+from supabase_client import (
     get_today_expenses,
     get_month_expenses,
     get_season_expenses,

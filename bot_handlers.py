@@ -14,14 +14,20 @@ from config import TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_ID, get_current_season
 from gpt_parser import parse_expense_text
 from vision_parser import parse_bill_image
 from whisper_handler import transcribe_voice
-from sheets_client import append_expense
-from drive_client import upload_image
+from supabase_client import (
+    append_expense,
+    upload_image,
+    update_expense_cell,
+    get_expense_row
+)
 import summary as sm
 
 logger = logging.getLogger(__name__)
 
 # Temp store for pending photo entries (waiting for amount confirmation)
 _pending_photo: dict = {}
+# Active editing correction states
+_pending_edits: dict = {}
 
 SUMMARY_KEYWORDS = [
     "आजचा", "महिन्याचा", "हिशोब", "खर्च किती", "उत्पन्न किती",
@@ -55,6 +61,45 @@ MAIN_MENU_KEYBOARD = ReplyKeyboardMarkup(
 
 # State tracking for button-guided logging
 _interactive_entry: dict = {}
+
+def get_edit_keyboard(row_id: int):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✏️ रक्कम (Amount)", callback_data=f"edit:{row_id}:amount"),
+            InlineKeyboardButton("📝 टीप (Note)", callback_data=f"edit:{row_id}:desc")
+        ],
+        [
+            InlineKeyboardButton("🌾 पीक (Crop)", callback_data=f"edit:{row_id}:crop"),
+            InlineKeyboardButton("🛠️ वर्ग (Category)", callback_data=f"edit:{row_id}:cat")
+        ],
+        [
+            InlineKeyboardButton("✅ पूर्ण झाले (Done)", callback_data=f"edit:{row_id}:done")
+        ]
+    ])
+
+def get_edit_crop_keyboard(row_id: int):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("कापूस 🌿", callback_data=f"edit_val:{row_id}:crop:Cotton"),
+         InlineKeyboardButton("सोयाबीन 🫘", callback_data=f"edit_val:{row_id}:crop:Soybean")],
+        [InlineKeyboardButton("हळद 🟡", callback_data=f"edit_val:{row_id}:crop:Haldi"),
+         InlineKeyboardButton("गहू 🌾", callback_data=f"edit_val:{row_id}:crop:Wheat")],
+        [InlineKeyboardButton("General 🚜", callback_data=f"edit_val:{row_id}:crop:General")],
+        [InlineKeyboardButton("⬅️ मागे (Back)", callback_data=f"edit_back:{row_id}")]
+    ])
+
+def get_edit_category_keyboard(row_id: int):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛠️ मशागत (Tillage)", callback_data=f"edit_val:{row_id}:category:Tillage"),
+         InlineKeyboardButton("🌱 पेरणी/लागवड (Sowing)", callback_data=f"edit_val:{row_id}:category:Sowing")],
+        [InlineKeyboardButton("🌿 खत (Fertilizer)", callback_data=f"edit_val:{row_id}:category:Fertilizer"),
+         InlineKeyboardButton("🌾 बियाणे (Seeds)", callback_data=f"edit_val:{row_id}:category:Seeds")],
+        [InlineKeyboardButton("💊 फवारणी (Spray)", callback_data=f"edit_val:{row_id}:category:Spray"),
+         InlineKeyboardButton("👷 मजुरी (Labor)", callback_data=f"edit_val:{row_id}:category:Labor")],
+        [InlineKeyboardButton("💧 सिंचन (Irrigation)", callback_data=f"edit_val:{row_id}:category:Irrigation"),
+         InlineKeyboardButton("🚜 वाहतूक (Transport)", callback_data=f"edit_val:{row_id}:category:Transport")],
+        [InlineKeyboardButton("📦 इतर (Other)", callback_data=f"edit_val:{row_id}:category:Other")],
+        [InlineKeyboardButton("⬅️ मागे (Back)", callback_data=f"edit_back:{row_id}")]
+    ])
 
 def get_crop_keyboard():
     return InlineKeyboardMarkup([
@@ -189,6 +234,130 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 
                 await query.edit_message_text("📝 डेटा सेव्ह होत आहे...")
                 await _log_and_reply(bot, chat_id, state)
+
+        elif data.startswith("edit:"):
+            parts = data.split(":")
+            row_id = int(parts[1])
+            action = parts[2]
+            
+            if action == "done":
+                _pending_edits.pop(chat_id, None)
+                row = get_expense_row(row_id)
+                if row:
+                    t = row.get("Type", "expense")
+                    cat = row.get("Category", "")
+                    amt = row.get("Amount", 0)
+                    desc = row.get("Description", "")
+                    crop = row.get("Crop", "")
+                    bill_link = row.get("Bill_Link", "")
+                    
+                    icon = "✅" if t == "expense" else "💰"
+                    crop_tag = f" ({crop})" if crop and crop != "General" else ""
+                    
+                    try:
+                        clean_amt = str(amt).replace("₹", "").replace(",", "").strip()
+                        parsed_amt = int(float(clean_amt))
+                        amt_str = f"{parsed_amt:,}"
+                    except Exception:
+                        amt_str = str(amt)
+                        
+                    msg = f"{icon} नोंद झाली!{crop_tag}\n{cat}: ₹{amt_str}\n📝 {desc}"
+                    if bill_link:
+                        msg += f"\n📎 बिल: {bill_link}"
+                    msg += "\n\n💾 बदल सेव्ह झाले!"
+                else:
+                    msg = "💾 बदल सेव्ह झाले!"
+                
+                await query.edit_message_text(msg, reply_markup=None)
+                
+            elif action == "amount":
+                _pending_edits[chat_id] = {"row_id": row_id, "field": "amount"}
+                await query.edit_message_text(
+                    f"✏️ रक्कम दुरुस्त करणे:\n\n💬 *कृपया नवीन रक्कम (Amount) टाईप करा (उदा. 1500):*",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ मागे (Back)", callback_data=f"edit_back:{row_id}")]])
+                )
+                
+            elif action == "desc":
+                _pending_edits[chat_id] = {"row_id": row_id, "field": "desc"}
+                await query.edit_message_text(
+                    f"✏️ टीप / वर्णन दुरुस्त करणे:\n\n💬 *नवीन टीप / वर्णन टाईप करा:*",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ मागे (Back)", callback_data=f"edit_back:{row_id}")]])
+                )
+                
+            elif action == "crop":
+                await query.edit_message_text(
+                    f"✏️ पीक दुरुस्त करणे:\n\n👉 नवीन पीक निवडा:",
+                    reply_markup=get_edit_crop_keyboard(row_id)
+                )
+                
+            elif action == "cat":
+                await query.edit_message_text(
+                    f"✏️ वर्ग (Category) दुरुस्त करणे:\n\n👉 नवीन वर्ग निवडा:",
+                    reply_markup=get_edit_category_keyboard(row_id)
+                )
+
+        elif data.startswith("edit_val:"):
+            parts = data.split(":")
+            row_id = int(parts[1])
+            field = parts[2]
+            val = parts[3]
+            
+            col_name = "Crop" if field == "crop" else "Category"
+            success = update_expense_cell(row_id, col_name, val)
+            if success:
+                display_val = val
+                if field == "crop":
+                    display_val = {"Cotton": "कापूस 🌿", "Soybean": "सोयाबीन 🫘", "Haldi": "हळद 🟡", "Wheat": "गहू 🌾", "General": "General 🚜"}.get(val, val)
+                elif field == "category":
+                    cat_emoji = sm.CATEGORY_EMOJI.get(val, ("📦", val))
+                    display_val = f"{cat_emoji[0]} {cat_emoji[1]}"
+                
+                await query.edit_message_text(
+                    f"✅ {col_name} बदलून *{display_val}* करण्यात आला आहे.",
+                    parse_mode="Markdown",
+                    reply_markup=get_edit_keyboard(row_id)
+                )
+            else:
+                await query.edit_message_text(
+                    "❌ बदल करताना त्रुटी आली.",
+                    reply_markup=get_edit_keyboard(row_id)
+                )
+
+        elif data.startswith("edit_back:"):
+            row_id = int(data.split(":")[1])
+            _pending_edits.pop(chat_id, None)
+            
+            row = get_expense_row(row_id)
+            if row:
+                t = row.get("Type", "expense")
+                cat = row.get("Category", "")
+                amt = row.get("Amount", 0)
+                desc = row.get("Description", "")
+                crop = row.get("Crop", "")
+                bill_link = row.get("Bill_Link", "")
+                
+                icon = "✅" if t == "expense" else "💰"
+                crop_tag = f" ({crop})" if crop and crop != "General" else ""
+                
+                try:
+                    clean_amt = str(amt).replace("₹", "").replace(",", "").strip()
+                    parsed_amt = int(float(clean_amt))
+                    amt_str = f"{parsed_amt:,}"
+                except Exception:
+                    amt_str = str(amt)
+                
+                msg = f"{icon} नोंद अपडेट झाली!{crop_tag}\n{cat}: ₹{amt_str}\n📝 {desc}"
+                if bill_link:
+                    msg += f"\n📎 बिल: {bill_link}"
+            else:
+                msg = "✏️ नोंद दुरुस्त करा:"
+                
+            await query.edit_message_text(
+                msg,
+                reply_markup=get_edit_keyboard(row_id)
+            )
     except Exception as e:
         logger.error(f"Error in handle_callback_query: {e}", exc_info=True)
         try:
@@ -226,23 +395,21 @@ async def _download_file(bot: Bot, file_id: str) -> bytes:
 
 
 async def _log_and_reply(bot: Bot, chat_id: int, row: dict, extra_msg: str = "") -> None:
-    """Append row to Sheets and send confirmation reply."""
+    """Append row to database and send confirmation reply with edit inline buttons."""
     try:
-        success = append_expense(row)
-        if success:
-            t = row.get("type", "expense")
-            cat = row.get("category", "")
-            amt = row.get("amount", 0)
-            desc = row.get("description", "")
-            crop = row.get("crop", "")
+        row_id = append_expense(row)
+        if row_id is not None:
+            t = row.get("type", "expense") or row.get("Type", "expense")
+            cat = row.get("category", "") or row.get("Category", "")
+            amt = row.get("amount", 0) or row.get("Amount", 0)
+            desc = row.get("description", "") or row.get("Description", "")
+            crop = row.get("crop", "") or row.get("Crop", "")
             payment = f" | {row.get('payment')}" if row.get("payment") else ""
 
             icon = "✅" if t == "expense" else "💰"
             crop_tag = f" ({crop})" if crop and crop != "General" else ""
 
-            # Robust float parsing
             try:
-                # Remove currency symbols and commas if present
                 clean_amt = str(amt).replace("₹", "").replace(",", "").strip()
                 parsed_amt = int(float(clean_amt))
                 amt_str = f"{parsed_amt:,}"
@@ -252,13 +419,25 @@ async def _log_and_reply(bot: Bot, chat_id: int, row: dict, extra_msg: str = "")
             msg = f"{icon} नोंद झाली!{crop_tag}\n{cat}: ₹{amt_str}\n📝 {desc}{payment}"
             if extra_msg:
                 msg += f"\n{extra_msg}"
+            
+            await bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                reply_markup=get_edit_keyboard(row_id)
+            )
         else:
-            msg = "❌ नोंद झाली नाही, पुन्हा पाठवा"
+            await bot.send_message(
+                chat_id=chat_id,
+                text="❌ नोंद झाली नाही, पुन्हा पाठवा",
+                reply_markup=MAIN_MENU_KEYBOARD
+            )
     except Exception as e:
         logger.error(f"Error in _log_and_reply: {e}", exc_info=True)
-        msg = "⚠️ नोंद करताना एरर आली, पण डेटा सेव्ह होऊ शकला नाही."
-
-    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=MAIN_MENU_KEYBOARD)
+        await bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ नोंद करताना एरर आली, पण डेटा सेव्ह होऊ शकला नाही.",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -269,6 +448,83 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         if not _is_authorized(chat_id):
             return
+
+        # Check if user is responding with a correction
+        if chat_id in _pending_edits:
+            pending = _pending_edits.pop(chat_id)
+            row_id = pending["row_id"]
+            field = pending["field"]
+            
+            if field == "amount":
+                try:
+                    amt_clean = text.replace("₹", "").replace(",", "").strip()
+                    amount = float(amt_clean)
+                    success = update_expense_cell(row_id, "Amount", amount)
+                    if success:
+                        row = get_expense_row(row_id)
+                        t = row.get("Type", "expense")
+                        cat = row.get("Category", "")
+                        desc = row.get("Description", "")
+                        crop = row.get("Crop", "")
+                        
+                        icon = "✅" if t == "expense" else "💰"
+                        crop_tag = f" ({crop})" if crop and crop != "General" else ""
+                        
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=f"✅ रक्कम बदलून *₹{amount:,.0f}* करण्यात आली आहे.\n\n"
+                                 f"{icon} नोंद: {crop_tag}\n{cat}: ₹{amount:,.0f}\n📝 {desc}",
+                            parse_mode="Markdown",
+                            reply_markup=get_edit_keyboard(row_id)
+                        )
+                    else:
+                        await bot.send_message(
+                            chat_id=chat_id, 
+                            text="❌ बदल करता आला नाही.",
+                            reply_markup=get_edit_keyboard(row_id)
+                        )
+                except ValueError:
+                    _pending_edits[chat_id] = pending
+                    await bot.send_message(
+                        chat_id=chat_id, 
+                        text="❌ फक्त संख्या (नंबर) टाईप करा (उदा: 1500):",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ मागे (Back)", callback_data=f"edit_back:{row_id}")]])
+                    )
+                return
+
+            elif field == "desc":
+                success = update_expense_cell(row_id, "Description", text)
+                if success:
+                    row = get_expense_row(row_id)
+                    t = row.get("Type", "expense")
+                    cat = row.get("Category", "")
+                    amt = row.get("Amount", 0)
+                    crop = row.get("Crop", "")
+                    
+                    icon = "✅" if t == "expense" else "💰"
+                    crop_tag = f" ({crop})" if crop and crop != "General" else ""
+                    
+                    try:
+                        clean_amt = str(amt).replace("₹", "").replace(",", "").strip()
+                        parsed_amt = int(float(clean_amt))
+                        amt_str = f"{parsed_amt:,}"
+                    except Exception:
+                        amt_str = str(amt)
+                        
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"✅ टीप बदलून *{text}* करण्यात आली आहे.\n\n"
+                             f"{icon} नोंद: {crop_tag}\n{cat}: ₹{amt_str}\n📝 {text}",
+                        parse_mode="Markdown",
+                        reply_markup=get_edit_keyboard(row_id)
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=chat_id, 
+                        text="❌ बदल करता आला नाही.",
+                        reply_markup=get_edit_keyboard(row_id)
+                    )
+                return
 
         # Help command / Main Menu Help
         if text.strip().lower() in ["/start", "/help", "help", "मदत", "❓ मदत"]:

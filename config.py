@@ -31,14 +31,20 @@ def _clean_google_id(val: str) -> str:
 GOOGLE_SHEET_ID = _clean_google_id(os.getenv("GOOGLE_SHEET_ID", ""))
 GOOGLE_DRIVE_ROOT_FOLDER_ID = _clean_google_id(os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID", ""))
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
 # Service account JSON can be stored as env var string or file path
 _sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-if _sa_json.startswith("{"):
-    SERVICE_ACCOUNT_INFO = json.loads(_sa_json)
-else:
-    # treat as file path
-    with open(_sa_json) as f:
-        SERVICE_ACCOUNT_INFO = json.load(f)
+SERVICE_ACCOUNT_INFO = None
+if _sa_json:
+    if _sa_json.startswith("{"):
+        SERVICE_ACCOUNT_INFO = json.loads(_sa_json)
+    else:
+        # treat as file path
+        if os.path.exists(_sa_json):
+            with open(_sa_json) as f:
+                SERVICE_ACCOUNT_INFO = json.load(f)
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 PORT = int(os.getenv("PORT", 8000))
